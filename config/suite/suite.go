@@ -25,6 +25,11 @@ var (
 	// ErrSuiteWithInvalidTimeout is the error returned when a suite has an invalid timeout
 	ErrSuiteWithInvalidTimeout = errors.New("suite timeout must be positive")
 
+	// ErrInvalidSuiteInterval is the error returned when a suite has an interval that is set but lower than the
+	// minimum. Sub-second intervals would cause a runaway high-CPU poll loop and negative intervals would cause
+	// time.NewTicker to panic.
+	ErrInvalidSuiteInterval = errors.New("the minimum interval for a suite is 1s")
+
 	// DefaultInterval is the default interval for suite execution
 	DefaultInterval = 10 * time.Minute
 
@@ -96,6 +101,8 @@ func (s *Suite) ValidateAndSetDefaults() error {
 	// Set default interval
 	if s.Interval == 0 {
 		s.Interval = DefaultInterval
+	} else if s.Interval < time.Second {
+		return ErrInvalidSuiteInterval
 	}
 	// Set default timeout
 	if s.Timeout == 0 {

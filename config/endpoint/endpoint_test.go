@@ -663,6 +663,24 @@ func TestEndpoint_ValidateAndSetDefaultsWithSimpleErrors(t *testing.T) {
 			},
 			expectedErr: nil,
 		},
+		{
+			endpoint: &Endpoint{
+				Name:       "endpoint-with-sub-second-interval",
+				URL:        "https://example.com",
+				Interval:   time.Millisecond,
+				Conditions: []Condition{Condition("[STATUS] == 200")},
+			},
+			expectedErr: ErrInvalidEndpointInterval,
+		},
+		{
+			endpoint: &Endpoint{
+				Name:       "endpoint-with-negative-interval",
+				URL:        "https://example.com",
+				Interval:   -1 * time.Second,
+				Conditions: []Condition{Condition("[STATUS] == 200")},
+			},
+			expectedErr: ErrInvalidEndpointInterval,
+		},
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.endpoint.Name, func(t *testing.T) {
