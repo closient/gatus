@@ -2,6 +2,7 @@ package custom
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -108,11 +109,11 @@ func (provider *AlertProvider) buildHTTPRequest(cfg *Config, ep *endpoint.Endpoi
 	url = strings.ReplaceAll(url, "[ENDPOINT_GROUP]", ep.Group)
 	body = strings.ReplaceAll(body, "[ENDPOINT_URL]", ep.URL)
 	url = strings.ReplaceAll(url, "[ENDPOINT_URL]", ep.URL)
-	resultErrors := strings.ReplaceAll(strings.Join(result.Errors, ","), "\"", "\\\"")
+	resultErrors := escapeJSONStringContent(strings.Join(result.Errors, ","))
 	body = strings.ReplaceAll(body, "[RESULT_ERRORS]", resultErrors)
 	url = strings.ReplaceAll(url, "[RESULT_ERRORS]", resultErrors)
 
-	if len(result.ConditionResults) > 0 && strings.Contains(body, "[RESULT_CONDITIONS]") {
+	if strings.Contains(body, "[RESULT_CONDITIONS]") || strings.Contains(url, "[RESULT_CONDITIONS]") {
 		var formattedConditionResults string
 		for index, conditionResult := range result.ConditionResults {
 			var prefix string
@@ -126,9 +127,23 @@ func (provider *AlertProvider) buildHTTPRequest(cfg *Config, ep *endpoint.Endpoi
 				formattedConditionResults += ", "
 			}
 		}
+		formattedConditionResults = escapeJSONStringContent(formattedConditionResults)
 		body = strings.ReplaceAll(body, "[RESULT_CONDITIONS]", formattedConditionResults)
 		url = strings.ReplaceAll(url, "[RESULT_CONDITIONS]", formattedConditionResults)
 	}
+
+	// Both condition placeholders are replaced even when there is nothing to
+	// list (a resolved alert, or an external endpoint whose result carries no
+	// conditions), so the literal placeholder never leaks into the payload.
+	var failedConditions []string
+	for _, conditionResult := range result.ConditionResults {
+		if !conditionResult.Success {
+			failedConditions = append(failedConditions, conditionResult.Condition)
+		}
+	}
+	formattedFailedConditions := escapeJSONStringContent(strings.Join(failedConditions, "; "))
+	body = strings.ReplaceAll(body, "[RESULT_FAILED_CONDITIONS]", formattedFailedConditions)
+	url = strings.ReplaceAll(url, "[RESULT_FAILED_CONDITIONS]", formattedFailedConditions)
 
 	if resolved {
 		body = strings.ReplaceAll(body, "[ALERT_TRIGGERED_OR_RESOLVED]", provider.GetAlertStatePlaceholderValue(cfg, true))
@@ -146,6 +161,19 @@ func (provider *AlertProvider) buildHTTPRequest(cfg *Config, ep *endpoint.Endpoi
 		request.Header.Set(k, v)
 	}
 	return request
+}
+
+// escapeJSONStringContent escapes value so it can be substituted between the
+// quotes of a JSON string without producing an invalid document. Condition
+// strings routinely carry double quotes (e.g. `#(name=="Access")`), and a
+// receiver that rejects the body drops the alert entirely.
+func escapeJSONStringContent(value string) string {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
+	encoded := strings.TrimSuffix(buffer.String(), "\n")
+	return encoded[1 : len(encoded)-1]
 }
 
 // GetAlertStatePlaceholderValue returns the Placeholder value for ALERT_TRIGGERED_OR_RESOLVED if configured

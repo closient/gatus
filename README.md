@@ -2588,6 +2588,9 @@ Furthermore, you may use the following placeholders in the body (`alerting.custo
 - `[ENDPOINT_URL]` (resolved from `endpoints[].url`)
 - `[RESULT_ERRORS]` (resolved from the health evaluation of a given health check)
 - `[RESULT_CONDITIONS]` (condition results from the health evaluation of a given health check)
+- `[RESULT_FAILED_CONDITIONS]` (only the failed conditions, separated by `; `, each showing the observed value, e.g. `[STATUS] (500) == 200`)
+
+`[RESULT_ERRORS]`, `[RESULT_CONDITIONS]` and `[RESULT_FAILED_CONDITIONS]` are escaped for use inside a JSON string.
 -
 If you have an alert using the `custom` provider with `send-on-resolved` set to `true`, you can use the
 `[ALERT_TRIGGERED_OR_RESOLVED]` placeholder to differentiate the notifications.

@@ -1,6 +1,7 @@
 package custom
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -459,6 +460,76 @@ func TestAlertProvider_GetConfig(t *testing.T) {
 			// Test ValidateOverrides as well, since it really just calls GetConfig
 			if err = scenario.Provider.ValidateOverrides(scenario.InputGroup, &scenario.InputAlert); err != nil {
 				t.Errorf("unexpected error: %s", err)
+			}
+		})
+	}
+}
+
+func TestAlertProvider_buildHTTPRequestWithResultPlaceholdersYieldsValidJSON(t *testing.T) {
+	alertProvider := &AlertProvider{
+		DefaultConfig: Config{
+			URL:  "https://example.com",
+			Body: `{"description": "[ALERT_DESCRIPTION] -- [RESULT_FAILED_CONDITIONS]", "conditions": "[RESULT_CONDITIONS]", "errors": "[RESULT_ERRORS]"}`,
+		},
+	}
+	alertDescription := "component status"
+	quotedCondition := `[BODY].components.#(name=="Access").status (degraded_performance) == any(operational, under_maintenance)`
+	scenarios := []struct {
+		Name                     string
+		Result                   *endpoint.Result
+		ExpectedFailedConditions string
+		ExpectedConditions       string
+		ExpectedErrors           string
+	}{
+		{
+			Name: "failed-condition-with-quotes",
+			Result: &endpoint.Result{
+				ConditionResults: []*endpoint.ConditionResult{
+					{Condition: "[STATUS] == 200", Success: true},
+					{Condition: quotedCondition, Success: false},
+					{Condition: `[BODY].path (a\b) == "x" && [RESPONSE_TIME] < 500`, Success: false},
+				},
+				Errors: []string{`dial tcp: "lookup" failed`},
+			},
+			ExpectedFailedConditions: quotedCondition + `; [BODY].path (a\b) == "x" && [RESPONSE_TIME] < 500`,
+			ExpectedConditions:       "✅ - `[STATUS] == 200`, ❌ - `" + quotedCondition + "`, ❌ - `" + `[BODY].path (a\b) == "x" && [RESPONSE_TIME] < 500` + "`",
+			ExpectedErrors:           `dial tcp: "lookup" failed`,
+		},
+		{
+			Name: "all-conditions-pass",
+			Result: &endpoint.Result{
+				ConditionResults: []*endpoint.ConditionResult{{Condition: quotedCondition, Success: true}},
+			},
+			ExpectedConditions: "✅ - `" + quotedCondition + "`",
+		},
+		{
+			// External endpoints carry no condition results at all.
+			Name:   "no-condition-results",
+			Result: &endpoint.Result{},
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			request := alertProvider.buildHTTPRequest(
+				&alertProvider.DefaultConfig,
+				&endpoint.Endpoint{Name: "endpoint-name", Group: "endpoint-group"},
+				&alert.Alert{Description: &alertDescription},
+				scenario.Result,
+				false,
+			)
+			body, _ := io.ReadAll(request.Body)
+			var decoded map[string]string
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				t.Fatalf("expected body to be valid JSON, got error %v for body %s", err, body)
+			}
+			if expected := alertDescription + " -- " + scenario.ExpectedFailedConditions; decoded["description"] != expected {
+				t.Errorf("expected description to be %q, got %q", expected, decoded["description"])
+			}
+			if decoded["conditions"] != scenario.ExpectedConditions {
+				t.Errorf("expected conditions to be %q, got %q", scenario.ExpectedConditions, decoded["conditions"])
+			}
+			if decoded["errors"] != scenario.ExpectedErrors {
+				t.Errorf("expected errors to be %q, got %q", scenario.ExpectedErrors, decoded["errors"])
 			}
 		})
 	}
