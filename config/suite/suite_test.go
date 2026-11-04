@@ -97,6 +97,45 @@ func TestSuite_ValidateAndSetDefaults(t *testing.T) {
 	}
 }
 
+func TestSuite_ValidateAndSetDefaultsWithInvalidInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		interval    time.Duration
+		expectedErr error
+	}{
+		{
+			name:        "sub-second-interval",
+			interval:    time.Millisecond,
+			expectedErr: ErrInvalidSuiteInterval,
+		},
+		{
+			name:        "negative-interval",
+			interval:    -1 * time.Second,
+			expectedErr: ErrInvalidSuiteInterval,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Suite{
+				Name:     "test-suite",
+				Interval: tt.interval,
+				Endpoints: []*endpoint.Endpoint{
+					{
+						Name: "endpoint1",
+						URL:  "https://example.org",
+						Conditions: []endpoint.Condition{
+							endpoint.Condition("[STATUS] == 200"),
+						},
+					},
+				},
+			}
+			if err := s.ValidateAndSetDefaults(); err != tt.expectedErr {
+				t.Errorf("Expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
+}
+
 func TestSuite_IsEnabled(t *testing.T) {
 	tests := []struct {
 		name    string

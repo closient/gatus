@@ -75,6 +75,11 @@ var (
 	// This is because the free whois service we are using should not be abused, especially considering the fact that
 	// the data takes a while to be updated.
 	ErrInvalidEndpointIntervalForDomainExpirationPlaceholder = errors.New("the minimum interval for an endpoint with a condition using the " + DomainExpirationPlaceholder + " placeholder is 300s (5m)")
+
+	// ErrInvalidEndpointInterval is the error with which Gatus will panic if an endpoint has an interval that is set
+	// but lower than the minimum. Sub-second intervals would cause a runaway high-CPU poll loop and negative intervals
+	// would cause time.NewTicker to panic.
+	ErrInvalidEndpointInterval = errors.New("the minimum interval for an endpoint is 1s")
 )
 
 // Endpoint is the configuration of a service to be monitored
@@ -214,6 +219,8 @@ func (e *Endpoint) ValidateAndSetDefaults() error {
 	}
 	if e.Interval == 0 {
 		e.Interval = 1 * time.Minute
+	} else if e.Interval < time.Second {
+		return ErrInvalidEndpointInterval
 	}
 	if len(e.Method) == 0 {
 		e.Method = http.MethodGet
